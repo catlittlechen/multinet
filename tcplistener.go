@@ -23,9 +23,15 @@ func getClientID() int {
 
 type TCPListener struct {
 	sync.Mutex
-	listener     *net.TCPListener
-	groupTCPConn map[int]GroupTCPConn
+
+	listener *net.TCPListener
+
+	ifListen   bool
+	tcpChannel chan *TCPConn
+	errChannel chan error
+
 	groupID      int
+	groupTCPConn map[int]GroupTCPConn
 }
 
 func ListenTCP(netStr string, laddr *net.TCPAddr) (*TCPListener, error) {
@@ -35,6 +41,8 @@ func ListenTCP(netStr string, laddr *net.TCPAddr) (*TCPListener, error) {
 	}
 
 	listener := new(TCPListener)
+	listener.tcpChannel = make(chan *TCPConn, 1024)
+	listener.errChannel = make(chan error, 1024)
 	listener.listener = tcpListener
 	listener.groupTCPConn = make(map[int]GroupTCPConn)
 
@@ -49,20 +57,39 @@ func (self *TCPListener) getGroupID() int {
 	return self.groupID
 }
 
-func (self *TCPListener) AcceptTCP() (*TCPConn, error) {
+func (self *TCPListener) AcceptTCP() (tcpConn *TCPConn, err error) {
+
+	go self.acceptTCP()
+	select {
+	case tcpConn = <-self.tcpChannel:
+	case err = <-self.errChannel:
+	}
+	return
+}
+
+func (self *TCPListener) acceptTCP() {
+
+	if self.ifListen {
+		return
+	}
+	self.ifListen = true
+	defer func() {
+		self.ifListen = false
+	}()
 
 	data := make([]byte, 1024)
 	groupID := 0
 	for {
-
 		conn, err := self.listener.AcceptTCP()
 		if err != nil {
-			return nil, err
+			self.errChannel <- err
+			return
 		}
 
 		count, err := conn.Read(data)
 		if err != nil {
-			return nil, err
+			self.errChannel <- err
+			return
 		}
 
 		dataStr := string(data[:count])
@@ -74,7 +101,8 @@ func (self *TCPListener) AcceptTCP() (*TCPConn, error) {
 			_, err = conn.Write([]byte(strconv.Itoa(groupID) + "&" + strconv.Itoa(clientID)))
 			if err != nil {
 				conn.Close()
-				return nil, err
+				self.errChannel <- err
+				return
 			}
 			groupTCPConn := &GroupTCPConn{
 				groupID:        groupID,
@@ -83,7 +111,8 @@ func (self *TCPListener) AcceptTCP() (*TCPConn, error) {
 			}
 			groupTCPConn.addConn(clientID, conn)
 			self.groupTCPConn[groupID] = *groupTCPConn
-			return groupTCPConn.getTCPConn(), nil
+			self.tcpChannel <- groupTCPConn.getTCPConn()
+			return
 		}
 
 		//new group member
@@ -91,7 +120,8 @@ func (self *TCPListener) AcceptTCP() (*TCPConn, error) {
 			_, err = conn.Write([]byte(strconv.Itoa(groupID) + "&" + strconv.Itoa(clientID)))
 			if err != nil {
 				conn.Close()
-				return nil, err
+				self.errChannel <- err
+				return
 			}
 			groupTCPConn := self.groupTCPConn[groupID]
 			groupTCPConn.addConn(clientID, conn)
@@ -100,7 +130,6 @@ func (self *TCPListener) AcceptTCP() (*TCPConn, error) {
 		}
 
 	}
-	return nil, nil
 }
 
 func (self *TCPListener) Close() error {
