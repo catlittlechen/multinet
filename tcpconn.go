@@ -2,6 +2,7 @@ package multinet
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"strconv"
 )
@@ -20,6 +21,7 @@ func DialTCP(netStr string, laddr, raddr *net.TCPAddr) (*TCPConn, error) {
 	if groupTCPConn != nil {
 		return groupTCPConn.getTCPConn(), nil
 	}
+	fmt.Printf("Not Hit Cache")
 
 	conn, err := net.DialTCP(netStr, laddr, raddr)
 	if err != nil {
@@ -49,36 +51,38 @@ func DialTCP(netStr string, laddr, raddr *net.TCPAddr) (*TCPConn, error) {
 	groupTCPConn = newGroupTCPConn(gid, nil)
 	groupTCPConn.addConn(cid, conn)
 
-	for i := 1; i < TCPCount; i++ {
+	go func() {
+		for i := 1; i < TCPCount; i++ {
 
-		conn, err = net.DialTCP(netStr, laddr, raddr)
-		if err != nil {
-			return nil, err
-		}
+			conn, err = net.DialTCP(netStr, laddr, raddr)
+			if err != nil {
+				return
+			}
 
-		_, err = conn.Write([]byte(strconv.Itoa(groupTCPConn.groupID)))
-		if err != nil {
-			conn.Close()
-			return nil, err
-		}
-		count, err = conn.Read(data)
-		if err != nil {
-			conn.Close()
-			return nil, err
-		}
-		gid, cid, err = splitData(string(data[:count]))
-		if err != nil {
-			conn.Close()
-			return nil, err
-		}
+			_, err = conn.Write([]byte(strconv.Itoa(groupTCPConn.groupID)))
+			if err != nil {
+				conn.Close()
+				return
+			}
+			count, err = conn.Read(data)
+			if err != nil {
+				conn.Close()
+				return
+			}
+			gid, cid, err = splitData(string(data[:count]))
+			if err != nil {
+				conn.Close()
+				return
+			}
 
-		if groupTCPConn.groupID == gid {
-			groupTCPConn.addConn(cid, conn)
-		} else {
-			conn.Close()
-			return nil, errors.New("verify group id fail")
+			if groupTCPConn.groupID == gid {
+				groupTCPConn.addConn(cid, conn)
+			} else {
+				conn.Close()
+				return
+			}
 		}
-	}
+	}()
 
 	setGroupConn(netStr, laddr, raddr, groupTCPConn)
 	return groupTCPConn.getTCPConn(), nil
@@ -97,7 +101,7 @@ func newTCPConn(groupTCPConn *GroupTCPConn, syncID int) *TCPConn {
 }
 
 func (self *TCPConn) Close() {
-	delete(self.groupConn.virtualTCPConn, self.syncID)
+	self.groupConn.deleteTCPConn(self.syncID)
 }
 
 func (self *TCPConn) Read() ([]byte, error) {

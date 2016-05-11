@@ -22,6 +22,7 @@ func main() {
 		tcpConn, err := conn.AcceptTCP()
 		if err != nil {
 			fmt.Println(err)
+			continue
 		}
 		go dealTCPConn(tcpConn)
 

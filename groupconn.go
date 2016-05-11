@@ -2,10 +2,17 @@ package multinet
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
+	"sync"
 )
 
+func a() {
+	fmt.Sprintf("")
+}
+
 type GroupTCPConn struct {
+	sync.Mutex
 	groupID int
 	cap     int
 
@@ -18,19 +25,22 @@ type GroupTCPConn struct {
 }
 
 func newGroupTCPConn(groupID int, listener *TCPListener) *GroupTCPConn {
-	return &GroupTCPConn{
-		groupID: groupID,
+	groupTCPConn := new(GroupTCPConn)
+	groupTCPConn.groupID = groupID
 
-		errorchannel:   make(chan error, 1024),
-		writeChannel:   make(chan *packageData, 1024),
-		tcpConn:        make(map[int]*net.TCPConn),
-		virtualTCPConn: make(map[int]*TCPConn),
+	groupTCPConn.errorchannel = make(chan error, 1024)
+	groupTCPConn.writeChannel = make(chan *packageData, 1024)
+	groupTCPConn.tcpConn = make(map[int]*net.TCPConn)
+	groupTCPConn.virtualTCPConn = make(map[int]*TCPConn)
 
-		listener: listener,
-	}
+	groupTCPConn.listener = listener
+	return groupTCPConn
 }
 
 func (self *GroupTCPConn) addConn(clientID int, conn *net.TCPConn) {
+	//fmt.Printf("clientID %d\n", clientID)
+	self.Lock()
+	defer self.Unlock()
 	self.cap++
 	self.tcpConn[clientID] = conn
 	go self.read(clientID, conn)
@@ -84,8 +94,17 @@ func (self *GroupTCPConn) Close() error {
 }
 
 func (self *GroupTCPConn) getTCPConn() (tcpConn *TCPConn) {
+	self.Lock()
+	defer self.Unlock()
 	tcpConn = newTCPConn(self, 0)
 	self.virtualTCPConn[tcpConn.syncID] = tcpConn
+	return
+}
+
+func (self *GroupTCPConn) deleteTCPConn(syncID int) {
+	self.Lock()
+	defer self.Unlock()
+	delete(self.virtualTCPConn, syncID)
 	return
 }
 
