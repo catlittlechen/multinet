@@ -43,7 +43,7 @@ func DialTCP(netStr string, laddr, raddr *net.TCPAddr) (*TCPConn, error) {
 		return nil, err
 	}
 
-	groupTCPConn := &TCPGroupConn{
+	groupTCPConn := &GroupTCPConn{
 		groupID:        gid,
 		tcpConn:        make(map[int]*net.TCPConn),
 		virtualTCPConn: make(map[int]*TCPConn),

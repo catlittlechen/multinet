@@ -26,7 +26,7 @@ type GroupTCPConn struct {
 	virtualTCPConn map[int]*TCPConn
 }
 
-var globalMapGroupTCPConn = make(map[string]*TCPGroupConn)
+var globalMapGroupTCPConn = make(map[string]*GroupTCPConn)
 
 func getGroupConn(netStr string, laddr, raddr *net.TCPAddr) *GroupTCPConn {
 	key := netStr + "&" + laddr.String() + "&" + raddr.String()
