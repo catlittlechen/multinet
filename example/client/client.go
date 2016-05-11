@@ -15,11 +15,17 @@ func main() {
 		return
 	}
 
-	_, err = multinet.DialTCP("tcp", nil, tcpAddr)
+	tcpConn, err := multinet.DialTCP("tcp", nil, tcpAddr)
 	if err != nil {
 		fmt.Printf("Fatal Error %s\n", err)
 		return
 	}
+
+	data := []byte("Hello Multinet Server!")
+	tcpConn.Write(data)
+	data, err = tcpConn.Read()
+	fmt.Println(string(data))
+	fmt.Println(err)
 
 	time.Sleep(1e10)
 }

@@ -30,7 +30,6 @@ type TCPListener struct {
 	tcpChannel chan *TCPConn
 	errChannel chan error
 
-	groupID      int
 	groupTCPConn map[int]GroupTCPConn
 }
 
@@ -49,14 +48,6 @@ func ListenTCP(netStr string, laddr *net.TCPAddr) (*TCPListener, error) {
 	return listener, nil
 }
 
-func (self *TCPListener) getGroupID() int {
-	self.Lock()
-	defer self.Unlock()
-
-	self.groupID++
-	return self.groupID
-}
-
 func (self *TCPListener) AcceptTCP() (tcpConn *TCPConn, err error) {
 
 	go self.acceptTCP()
@@ -68,14 +59,16 @@ func (self *TCPListener) AcceptTCP() (tcpConn *TCPConn, err error) {
 }
 
 func (self *TCPListener) acceptTCP() {
-
+	self.Lock()
 	if self.ifListen {
+		self.Unlock()
 		return
 	}
 	self.ifListen = true
 	defer func() {
 		self.ifListen = false
 	}()
+	self.Unlock()
 
 	data := make([]byte, 1024)
 	groupID := 0
@@ -97,22 +90,19 @@ func (self *TCPListener) acceptTCP() {
 
 		//new group
 		if strings.Compare(dataStr, getGroupID) == 0 {
-			groupID = self.getGroupID()
+			groupID = getUniqueID()
 			_, err = conn.Write([]byte(strconv.Itoa(groupID) + "&" + strconv.Itoa(clientID)))
 			if err != nil {
 				conn.Close()
 				self.errChannel <- err
 				return
 			}
-			groupTCPConn := &GroupTCPConn{
-				groupID:        groupID,
-				tcpConn:        make(map[int]*net.TCPConn),
-				virtualTCPConn: make(map[int]*TCPConn),
-			}
+
+			groupTCPConn := newGroupTCPConn(groupID, self)
 			groupTCPConn.addConn(clientID, conn)
+
 			self.groupTCPConn[groupID] = *groupTCPConn
-			self.tcpChannel <- groupTCPConn.getTCPConn()
-			return
+			continue
 		}
 
 		//new group member

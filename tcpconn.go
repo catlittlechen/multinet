@@ -7,15 +7,18 @@ import (
 )
 
 type TCPConn struct {
-	groupConn *GroupTCPConn
-	syncID    int
+	groupConn    *GroupTCPConn
+	writeChannel chan *packageData
+	readChannel  chan *packageData
+	syncID       int
 }
 
 func DialTCP(netStr string, laddr, raddr *net.TCPAddr) (*TCPConn, error) {
 
 	// only first dial will work
-	if tgc := getGroupConn(netStr, laddr, raddr); tgc != nil {
-		return tgc.getTCPConn(), nil
+	groupTCPConn := getGroupConn(netStr, laddr, raddr)
+	if groupTCPConn != nil {
+		return groupTCPConn.getTCPConn(), nil
 	}
 
 	conn, err := net.DialTCP(netStr, laddr, raddr)
@@ -43,12 +46,7 @@ func DialTCP(netStr string, laddr, raddr *net.TCPAddr) (*TCPConn, error) {
 		return nil, err
 	}
 
-	groupTCPConn := &GroupTCPConn{
-		groupID:        gid,
-		tcpConn:        make(map[int]*net.TCPConn),
-		virtualTCPConn: make(map[int]*TCPConn),
-	}
-
+	groupTCPConn = newGroupTCPConn(gid, nil)
 	groupTCPConn.addConn(cid, conn)
 
 	for i := 1; i < TCPCount; i++ {
@@ -86,12 +84,35 @@ func DialTCP(netStr string, laddr, raddr *net.TCPAddr) (*TCPConn, error) {
 	return groupTCPConn.getTCPConn(), nil
 }
 
+func newTCPConn(groupTCPConn *GroupTCPConn, syncID int) *TCPConn {
+	if syncID == 0 {
+		syncID = getUniqueID()
+	}
+	return &TCPConn{
+		groupConn:    groupTCPConn,
+		writeChannel: groupTCPConn.writeChannel,
+		readChannel:  make(chan *packageData, 1024),
+		syncID:       syncID,
+	}
+}
+
 func (self *TCPConn) Close() {
 	delete(self.groupConn.virtualTCPConn, self.syncID)
 }
 
-func (self *TCPConn) Read() {
+func (self *TCPConn) Read() ([]byte, error) {
+	pd := <-self.readChannel
+	if pd == nil {
+		return nil, errors.New("read channel close")
+	}
+	return []byte(pd.Data), nil
 }
 
-func (self *TCPConn) Write() {
+func (self *TCPConn) Write(data []byte) {
+	pd := getPackageData()
+	pd.GroupID = self.groupConn.groupID
+	pd.SynID = self.syncID
+	pd.Data = string(data)
+	self.writeChannel <- pd
+	//TODO control stream
 }

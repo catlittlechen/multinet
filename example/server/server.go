@@ -19,9 +19,19 @@ func main() {
 		return
 	}
 	for {
-		_, err = conn.AcceptTCP()
+		tcpConn, err := conn.AcceptTCP()
 		if err != nil {
 			fmt.Println(err)
 		}
+		go dealTCPConn(tcpConn)
+
 	}
+}
+
+func dealTCPConn(tcpConn *multinet.TCPConn) {
+	data, err := tcpConn.Read()
+	fmt.Println(string(data))
+	fmt.Println(err)
+	data = []byte("Hi Multinet Client!")
+	tcpConn.Write(data)
 }
