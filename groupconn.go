@@ -1,15 +1,11 @@
 package multinet
 
 import (
-	"encoding/json"
 	"fmt"
 	"net"
+	"strconv"
 	"sync"
 )
-
-func a() {
-	fmt.Sprintf("")
-}
 
 type GroupTCPConn struct {
 	sync.Mutex
@@ -38,7 +34,6 @@ func newGroupTCPConn(groupID int, listener *TCPListener) *GroupTCPConn {
 }
 
 func (self *GroupTCPConn) addConn(clientID int, conn *net.TCPConn) {
-	//fmt.Printf("clientID %d\n", clientID)
 	self.Lock()
 	defer self.Unlock()
 	self.cap++
@@ -49,34 +44,77 @@ func (self *GroupTCPConn) addConn(clientID int, conn *net.TCPConn) {
 }
 
 func (self *GroupTCPConn) read(clientID int, conn *net.TCPConn) {
-	decoder := json.NewDecoder(conn)
+	data := make([]byte, 1024)
+	tmpData := make([]byte, 0)
+	nowDataLen := 0
+	var n int
 	var err error
 	for {
-		pd := getPackageData()
-		err = decoder.Decode(pd)
+		n, err = conn.Read(data)
 		if err != nil {
+			fmt.Println(err)
 			return
 		}
+		tmpData = append(tmpData, data[:n]...)
+
+	DealWithTmpData:
+		if nowDataLen == 0 {
+			if len(tmpData) < 4 {
+				continue
+			} else {
+				nowDataLen, err = strconv.Atoi(string(tmpData[:4]))
+				if err != nil {
+					fmt.Println(err)
+					return
+				}
+			}
+		}
+		if nowDataLen > len(tmpData) {
+			continue
+		}
+
+		pd := getPackageData()
+		err = pd.Decode(tmpData[4:nowDataLen])
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+
+		tmpData = tmpData[nowDataLen:]
+		nowDataLen = 0
+
 		if pd.GroupID != self.groupID {
 			continue
 		}
-		if tcpConn, ok := self.virtualTCPConn[pd.SynID]; ok {
+		if tcpConn, ok := self.virtualTCPConn[pd.SyncID]; ok {
 			tcpConn.readChannel <- pd
 		} else if self.listener != nil {
-			tcpConn = newTCPConn(self, pd.SynID)
+			tcpConn = newTCPConn(self, pd.SyncID)
 			self.listener.tcpChannel <- tcpConn
 			tcpConn.readChannel <- pd
+		} else {
+			putPackageData(pd)
+		}
+
+		if len(tmpData) != 0 {
+			goto DealWithTmpData
 		}
 	}
 }
 
 func (self *GroupTCPConn) write(clientID int, conn *net.TCPConn) {
-	encoder := json.NewEncoder(conn)
 	var err error
 	for {
 		pd := <-self.writeChannel
-		err = encoder.Encode(pd)
+		data := pd.Encode()
+		length := strconv.Itoa(len(data) + 4)
+		for len(length) < 4 {
+			length = "0" + length
+		}
+		data = append([]byte(length), data...)
+		_, err = conn.Write(data)
 		if err != nil {
+			fmt.Println(err)
 			return
 		}
 		//TODO control stream
@@ -87,6 +125,7 @@ func (self *GroupTCPConn) write(clientID int, conn *net.TCPConn) {
 func (self *GroupTCPConn) Close() error {
 	for _, tcpconn := range self.tcpConn {
 		if err := tcpconn.Close(); err != nil {
+			fmt.Println(err)
 			return err
 		}
 	}

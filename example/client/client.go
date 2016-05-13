@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"github.com/catlittlechen/multinet"
 	"net"
+	"os"
+	"runtime/pprof"
 	"sync"
 	"time"
 )
@@ -19,13 +21,16 @@ func main() {
 	}
 	wg.Add(1)
 	doTask(tcpAddr)
-	startTime := time.Now().Unix()
-	for i := 0; i < 1000; i++ {
+	proFile, err := os.Create("filename.prof")
+	pprof.StartCPUProfile(proFile)
+	defer pprof.StopCPUProfile()
+	startTime := time.Now().UnixNano()
+	for i := 0; i < 100; i++ {
 		wg.Add(1)
 		go doTask(tcpAddr)
 	}
 	wg.Wait()
-	endTime := time.Now().Unix()
+	endTime := time.Now().UnixNano()
 	fmt.Println(endTime - startTime)
 }
 
@@ -37,10 +42,11 @@ func doTask(tcpAddr *net.TCPAddr) {
 		fmt.Printf("Fatal Error %s\n", err)
 		return
 	}
-
-	data := []byte("Hello Multinet Server!")
-	tcpConn.Write(data)
-	tcpConn.Read()
+	data := []byte("Hi Multinet Client!")
+	for i := 0; i < 1000; i++ {
+		tcpConn.Write(data)
+		tcpConn.Read()
+	}
 	/*
 		data, err = tcpConn.Read()
 		fmt.Println(string(data))

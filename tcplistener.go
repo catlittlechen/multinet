@@ -81,6 +81,7 @@ func (self *TCPListener) acceptTCP() {
 
 		count, err := conn.Read(data)
 		if err != nil {
+			conn.Close()
 			self.errChannel <- err
 			return
 		}

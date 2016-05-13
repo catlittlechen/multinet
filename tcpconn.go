@@ -50,41 +50,39 @@ func DialTCP(netStr string, laddr, raddr *net.TCPAddr) (*TCPConn, error) {
 
 	groupTCPConn = newGroupTCPConn(gid, nil)
 	groupTCPConn.addConn(cid, conn)
-
-	go func() {
-		for i := 1; i < TCPCount; i++ {
-
-			conn, err = net.DialTCP(netStr, laddr, raddr)
-			if err != nil {
-				return
-			}
-
-			_, err = conn.Write([]byte(strconv.Itoa(groupTCPConn.groupID)))
-			if err != nil {
-				conn.Close()
-				return
-			}
-			count, err = conn.Read(data)
-			if err != nil {
-				conn.Close()
-				return
-			}
-			gid, cid, err = splitData(string(data[:count]))
-			if err != nil {
-				conn.Close()
-				return
-			}
-
-			if groupTCPConn.groupID == gid {
-				groupTCPConn.addConn(cid, conn)
-			} else {
-				conn.Close()
-				return
-			}
-		}
-	}()
-
 	setGroupConn(netStr, laddr, raddr, groupTCPConn)
+
+	for i := 1; i < TCPCount; i++ {
+
+		conn, err = net.DialTCP(netStr, laddr, raddr)
+		if err != nil {
+			return nil, err
+		}
+
+		_, err = conn.Write([]byte(strconv.Itoa(groupTCPConn.groupID)))
+		if err != nil {
+			conn.Close()
+			return nil, err
+		}
+		count, err = conn.Read(data)
+		if err != nil {
+			conn.Close()
+			return nil, err
+		}
+		gid, cid, err = splitData(string(data[:count]))
+		if err != nil {
+			conn.Close()
+			return nil, err
+		}
+
+		if groupTCPConn.groupID == gid {
+			groupTCPConn.addConn(cid, conn)
+		} else {
+			conn.Close()
+			return nil, err
+		}
+	}
+
 	return groupTCPConn.getTCPConn(), nil
 }
 
@@ -113,10 +111,7 @@ func (self *TCPConn) Read() ([]byte, error) {
 }
 
 func (self *TCPConn) Write(data []byte) {
-	pd := getPackageData()
-	pd.GroupID = self.groupConn.groupID
-	pd.SynID = self.syncID
-	pd.Data = string(data)
+	pd := NewPackageData(self.groupConn.groupID, self.syncID, data)
 	self.writeChannel <- pd
 	//TODO control stream
 }
