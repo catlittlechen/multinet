@@ -26,8 +26,8 @@ func newGroupTCPConn(groupID int, listener *TCPListener) *GroupTCPConn {
 
 	groupTCPConn.errorchannel = make(chan error, 1024)
 	groupTCPConn.writeChannel = make(chan *packageData, 1024)
-	groupTCPConn.tcpConn = make(map[int]*net.TCPConn)
-	groupTCPConn.virtualTCPConn = make(map[int]*TCPConn)
+	groupTCPConn.tcpConn = make(map[int]*net.TCPConn, 100)
+	groupTCPConn.virtualTCPConn = make(map[int]*TCPConn, 100)
 
 	groupTCPConn.listener = listener
 	return groupTCPConn
@@ -35,11 +35,11 @@ func newGroupTCPConn(groupID int, listener *TCPListener) *GroupTCPConn {
 
 func (self *GroupTCPConn) addConn(clientID int, conn *net.TCPConn) {
 	self.Lock()
-	defer self.Unlock()
 	self.cap++
 	self.tcpConn[clientID] = conn
 	go self.read(clientID, conn)
 	go self.write(clientID, conn)
+	self.Unlock()
 	return
 }
 
@@ -134,20 +134,20 @@ func (self *GroupTCPConn) Close() error {
 
 func (self *GroupTCPConn) getTCPConn() (tcpConn *TCPConn) {
 	self.Lock()
-	defer self.Unlock()
 	tcpConn = newTCPConn(self, 0)
 	self.virtualTCPConn[tcpConn.syncID] = tcpConn
+	self.Unlock()
 	return
 }
 
 func (self *GroupTCPConn) deleteTCPConn(syncID int) {
 	self.Lock()
-	defer self.Unlock()
 	delete(self.virtualTCPConn, syncID)
+	self.Unlock()
 	return
 }
 
-var globalMapGroupTCPConn = make(map[string]*GroupTCPConn)
+var globalMapGroupTCPConn = make(map[string]*GroupTCPConn, 100)
 
 func getGroupConn(netStr string, laddr, raddr *net.TCPAddr) *GroupTCPConn {
 	key := netStr + "&" + laddr.String() + "&" + raddr.String()

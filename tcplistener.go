@@ -14,11 +14,12 @@ type clientIDGenerate struct {
 
 var cid = new(clientIDGenerate)
 
-func getClientID() int {
+func getClientID() (id int) {
 	cid.Lock()
-	defer cid.Unlock()
 	cid.id++
-	return cid.id
+	id = cid.id
+	cid.Unlock()
+	return
 }
 
 type TCPListener struct {
@@ -43,7 +44,7 @@ func ListenTCP(netStr string, laddr *net.TCPAddr) (*TCPListener, error) {
 	listener.tcpChannel = make(chan *TCPConn, 1024)
 	listener.errChannel = make(chan error, 1024)
 	listener.listener = tcpListener
-	listener.groupTCPConn = make(map[int]GroupTCPConn)
+	listener.groupTCPConn = make(map[int]GroupTCPConn, 100)
 
 	return listener, nil
 }

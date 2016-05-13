@@ -45,9 +45,10 @@ type uniqueID struct {
 
 var globalUniqueID = new(uniqueID)
 
-func getUniqueID() int {
+func getUniqueID() (id int) {
 	globalUniqueID.Lock()
-	defer globalUniqueID.Unlock()
 	globalUniqueID.id++
-	return globalUniqueID.id
+	id = globalUniqueID.id
+	globalUniqueID.Unlock()
+	return
 }
