@@ -30,7 +30,7 @@ func (self *packageData) Decode(data []byte) (err error) {
 	if err != nil {
 		return err
 	}
-	self.SyncID, _ = strconv.Atoi(array[1])
+	self.SyncID, err = strconv.Atoi(array[1])
 	if err != nil {
 		return err
 	}
