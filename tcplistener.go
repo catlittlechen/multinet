@@ -7,21 +7,6 @@ import (
 	"sync"
 )
 
-type clientIDGenerate struct {
-	sync.Mutex
-	id int
-}
-
-var cid = new(clientIDGenerate)
-
-func getClientID() (id int) {
-	cid.Lock()
-	cid.id++
-	id = cid.id
-	cid.Unlock()
-	return
-}
-
 type TCPListener struct {
 	sync.Mutex
 
@@ -31,7 +16,7 @@ type TCPListener struct {
 	tcpChannel chan *TCPConn
 	errChannel chan error
 
-	groupTCPConn map[int]GroupTCPConn
+	groupTCPConn map[int]groupTCPConn
 }
 
 func ListenTCP(netStr string, laddr *net.TCPAddr) (*TCPListener, error) {
@@ -44,51 +29,51 @@ func ListenTCP(netStr string, laddr *net.TCPAddr) (*TCPListener, error) {
 	listener.tcpChannel = make(chan *TCPConn, 1024)
 	listener.errChannel = make(chan error, 1024)
 	listener.listener = tcpListener
-	listener.groupTCPConn = make(map[int]GroupTCPConn, 100)
+	listener.groupTCPConn = make(map[int]groupTCPConn, 100)
 
 	return listener, nil
 }
 
-func (self *TCPListener) AcceptTCP() (tcpConn *TCPConn, err error) {
+func (tl *TCPListener) AcceptTCP() (tcpConn *TCPConn, err error) {
 
-	go self.acceptTCP()
+	go tl.acceptTCP()
 	select {
-	case tcpConn = <-self.tcpChannel:
-	case err = <-self.errChannel:
+	case tcpConn = <-tl.tcpChannel:
+	case err = <-tl.errChannel:
 	}
 	return
 }
 
-func (self *TCPListener) acceptTCP() {
-	self.Lock()
-	if self.ifListen {
-		self.Unlock()
+func (tl *TCPListener) acceptTCP() {
+	tl.Lock()
+	if tl.ifListen {
+		tl.Unlock()
 		return
 	}
-	self.ifListen = true
+	tl.ifListen = true
 	defer func() {
-		self.ifListen = false
+		tl.ifListen = false
 	}()
-	self.Unlock()
+	tl.Unlock()
 
 	data := make([]byte, 1024)
 	groupID := 0
 	for {
-		conn, err := self.listener.AcceptTCP()
+		conn, err := tl.listener.AcceptTCP()
 		if err != nil {
-			self.errChannel <- err
+			tl.errChannel <- err
 			return
 		}
 
 		count, err := conn.Read(data)
 		if err != nil {
 			conn.Close()
-			self.errChannel <- err
+			tl.errChannel <- err
 			return
 		}
 
 		dataStr := string(data[:count])
-		clientID := getClientID()
+		clientID := getUniqueID()
 
 		//new group
 		if strings.Compare(dataStr, getGroupID) == 0 {
@@ -96,14 +81,14 @@ func (self *TCPListener) acceptTCP() {
 			_, err = conn.Write([]byte(strconv.Itoa(groupID) + "&" + strconv.Itoa(clientID)))
 			if err != nil {
 				conn.Close()
-				self.errChannel <- err
+				tl.errChannel <- err
 				return
 			}
 
-			groupTCPConn := newGroupTCPConn(groupID, self)
+			groupTCPConn := newGroupTCPConn(groupID, "", nil, nil, tl)
 			groupTCPConn.addConn(clientID, conn)
 
-			self.groupTCPConn[groupID] = *groupTCPConn
+			tl.groupTCPConn[groupID] = *groupTCPConn
 			continue
 		}
 
@@ -112,10 +97,10 @@ func (self *TCPListener) acceptTCP() {
 			_, err = conn.Write([]byte(strconv.Itoa(groupID) + "&" + strconv.Itoa(clientID)))
 			if err != nil {
 				conn.Close()
-				self.errChannel <- err
+				tl.errChannel <- err
 				return
 			}
-			groupTCPConn := self.groupTCPConn[groupID]
+			groupTCPConn := tl.groupTCPConn[groupID]
 			groupTCPConn.addConn(clientID, conn)
 		} else {
 			conn.Close()
@@ -124,6 +109,6 @@ func (self *TCPListener) acceptTCP() {
 	}
 }
 
-func (self *TCPListener) Close() error {
-	return self.listener.Close()
+func (tl *TCPListener) Close() error {
+	return tl.listener.Close()
 }

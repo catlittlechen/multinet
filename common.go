@@ -5,5 +5,6 @@ const (
 )
 
 var (
-	TCPCount = 10
+	initTCPCount = 10
+	maxTCPCount  = 100
 )

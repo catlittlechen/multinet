@@ -1,18 +1,23 @@
 package multinet
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
 	"sync"
 )
 
-type GroupTCPConn struct {
+type groupTCPConn struct {
 	sync.Mutex
 	groupID int
 	cap     int
 
-	errorchannel   chan error
+	netStr string
+	laddr  *net.TCPAddr
+	raddr  *net.TCPAddr
+
+	errorChannel   chan error
 	writeChannel   chan *packageData
 	tcpConn        map[int]*net.TCPConn
 	virtualTCPConn map[int]*TCPConn
@@ -20,32 +25,36 @@ type GroupTCPConn struct {
 	listener *TCPListener
 }
 
-func newGroupTCPConn(groupID int, listener *TCPListener) *GroupTCPConn {
-	groupTCPConn := new(GroupTCPConn)
-	groupTCPConn.groupID = groupID
+func newGroupTCPConn(groupID int, netStr string, laddr, raddr *net.TCPAddr, listener *TCPListener) *groupTCPConn {
+	gtconn := new(groupTCPConn)
+	gtconn.groupID = groupID
 
-	groupTCPConn.errorchannel = make(chan error, 1024)
-	groupTCPConn.writeChannel = make(chan *packageData, 1024)
-	groupTCPConn.tcpConn = make(map[int]*net.TCPConn, 100)
-	groupTCPConn.virtualTCPConn = make(map[int]*TCPConn, 100)
+	gtconn.netStr = netStr
+	gtconn.laddr = laddr
+	gtconn.raddr = raddr
 
-	groupTCPConn.listener = listener
-	return groupTCPConn
+	gtconn.errorChannel = make(chan error, 1024)
+	gtconn.writeChannel = make(chan *packageData, 1024)
+	gtconn.tcpConn = make(map[int]*net.TCPConn, 100)
+	gtconn.virtualTCPConn = make(map[int]*TCPConn, 100)
+
+	gtconn.listener = listener
+	return gtconn
 }
 
-func (self *GroupTCPConn) addConn(clientID int, conn *net.TCPConn) {
-	self.Lock()
-	self.cap++
-	self.tcpConn[clientID] = conn
-	go self.read(clientID, conn)
-	go self.write(clientID, conn)
-	self.Unlock()
+func (gtc *groupTCPConn) addConn(clientID int, conn *net.TCPConn) {
+	gtc.Lock()
+	gtc.cap++
+	gtc.tcpConn[clientID] = conn
+	go gtc.read(clientID, conn)
+	go gtc.write(clientID, conn)
+	gtc.Unlock()
 	return
 }
 
-func (self *GroupTCPConn) read(clientID int, conn *net.TCPConn) {
+func (gtc *groupTCPConn) read(clientID int, conn *net.TCPConn) {
 	data := make([]byte, 1024)
-	tmpData := make([]byte, 0)
+	var tmpData []byte
 	nowDataLen := 0
 	var n int
 	var err error
@@ -83,14 +92,14 @@ func (self *GroupTCPConn) read(clientID int, conn *net.TCPConn) {
 		tmpData = tmpData[nowDataLen:]
 		nowDataLen = 0
 
-		if pd.GroupID != self.groupID {
+		if pd.GroupID != gtc.groupID {
 			continue
 		}
-		if tcpConn, ok := self.virtualTCPConn[pd.SyncID]; ok {
+		if tcpConn, ok := gtc.virtualTCPConn[pd.SyncID]; ok {
 			tcpConn.readChannel <- pd
-		} else if self.listener != nil {
-			tcpConn = newTCPConn(self, pd.SyncID)
-			self.listener.tcpChannel <- tcpConn
+		} else if gtc.listener != nil {
+			tcpConn = newTCPConn(gtc, pd.SyncID)
+			gtc.listener.tcpChannel <- tcpConn
 			tcpConn.readChannel <- pd
 		} else {
 			putPackageData(pd)
@@ -102,10 +111,10 @@ func (self *GroupTCPConn) read(clientID int, conn *net.TCPConn) {
 	}
 }
 
-func (self *GroupTCPConn) write(clientID int, conn *net.TCPConn) {
+func (gtc *groupTCPConn) write(clientID int, conn *net.TCPConn) {
 	var err error
 	for {
-		pd := <-self.writeChannel
+		pd := <-gtc.writeChannel
 		data := pd.Encode()
 		length := strconv.Itoa(len(data) + 4)
 		for len(length) < 4 {
@@ -122,8 +131,8 @@ func (self *GroupTCPConn) write(clientID int, conn *net.TCPConn) {
 	}
 }
 
-func (self *GroupTCPConn) Close() error {
-	for _, tcpconn := range self.tcpConn {
+func (gtc *groupTCPConn) Close() error {
+	for _, tcpconn := range gtc.tcpConn {
 		if err := tcpconn.Close(); err != nil {
 			fmt.Println(err)
 			return err
@@ -132,30 +141,68 @@ func (self *GroupTCPConn) Close() error {
 	return nil
 }
 
-func (self *GroupTCPConn) getTCPConn() (tcpConn *TCPConn) {
-	self.Lock()
-	tcpConn = newTCPConn(self, 0)
-	self.virtualTCPConn[tcpConn.syncID] = tcpConn
-	self.Unlock()
+func (gtc *groupTCPConn) getTCPConn() (tcpConn *TCPConn) {
+	gtc.Lock()
+	tcpConn = newTCPConn(gtc, 0)
+	gtc.virtualTCPConn[tcpConn.syncID] = tcpConn
+	gtc.Unlock()
 	return
 }
 
-func (self *GroupTCPConn) deleteTCPConn(syncID int) {
-	self.Lock()
-	delete(self.virtualTCPConn, syncID)
-	self.Unlock()
+func (gtc *groupTCPConn) deleteTCPConn(syncID int) {
+	gtc.Lock()
+	delete(gtc.virtualTCPConn, syncID)
+	gtc.Unlock()
 	return
 }
 
-var globalMapGroupTCPConn = make(map[string]*GroupTCPConn, 100)
+func (gtc *groupTCPConn) dial() error {
+	if gtc.cap == maxTCPCount {
+		return nil
+	}
 
-func getGroupConn(netStr string, laddr, raddr *net.TCPAddr) *GroupTCPConn {
+	conn, err := net.DialTCP(gtc.netStr, gtc.laddr, gtc.raddr)
+	if err != nil {
+		return err
+	}
+
+	_, err = conn.Write([]byte(strconv.Itoa(gtc.groupID)))
+	if err != nil {
+		conn.Close()
+		return err
+	}
+
+	data := make([]byte, 100)
+	count, err := conn.Read(data)
+	if err != nil {
+		conn.Close()
+		return err
+	}
+	gid, cid, err := splitData(string(data[:count]))
+	if err != nil {
+		conn.Close()
+		return err
+	}
+
+	if gtc.groupID == gid {
+		gtc.addConn(cid, conn)
+	} else {
+		conn.Close()
+		return errors.New("verify group id fail")
+	}
+
+	return nil
+}
+
+var globalMapGroupTCPConn = make(map[string]*groupTCPConn, 100)
+
+func getGroupConn(netStr string, laddr, raddr *net.TCPAddr) *groupTCPConn {
 	key := netStr + "&" + laddr.String() + "&" + raddr.String()
 	return globalMapGroupTCPConn[key]
 }
 
-func setGroupConn(netStr string, laddr, raddr *net.TCPAddr, tgc *GroupTCPConn) {
+func setGroupConn(netStr string, laddr, raddr *net.TCPAddr, gtc *groupTCPConn) {
 	key := netStr + "&" + laddr.String() + "&" + raddr.String()
-	globalMapGroupTCPConn[key] = tgc
+	globalMapGroupTCPConn[key] = gtc
 	return
 }

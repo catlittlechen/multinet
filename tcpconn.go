@@ -4,11 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"strconv"
 )
 
 type TCPConn struct {
-	groupConn    *GroupTCPConn
+	groupConn    *groupTCPConn
 	writeChannel chan *packageData
 	readChannel  chan *packageData
 	syncID       int
@@ -17,9 +16,9 @@ type TCPConn struct {
 func DialTCP(netStr string, laddr, raddr *net.TCPAddr) (*TCPConn, error) {
 
 	// only first dial will work
-	groupTCPConn := getGroupConn(netStr, laddr, raddr)
-	if groupTCPConn != nil {
-		return groupTCPConn.getTCPConn(), nil
+	gtc := getGroupConn(netStr, laddr, raddr)
+	if gtc != nil {
+		return gtc.getTCPConn(), nil
 	}
 	fmt.Printf("Not Hit Cache")
 
@@ -35,7 +34,7 @@ func DialTCP(netStr string, laddr, raddr *net.TCPAddr) (*TCPConn, error) {
 		return nil, err
 	}
 
-	data := make([]byte, 1024)
+	data := make([]byte, 100)
 	count, err := conn.Read(data)
 	if err != nil {
 		conn.Close()
@@ -48,70 +47,42 @@ func DialTCP(netStr string, laddr, raddr *net.TCPAddr) (*TCPConn, error) {
 		return nil, err
 	}
 
-	groupTCPConn = newGroupTCPConn(gid, nil)
-	groupTCPConn.addConn(cid, conn)
-	setGroupConn(netStr, laddr, raddr, groupTCPConn)
+	gtc = newGroupTCPConn(gid, netStr, laddr, raddr, nil)
+	gtc.addConn(cid, conn)
+	setGroupConn(netStr, laddr, raddr, gtc)
 
-	for i := 1; i < TCPCount; i++ {
-
-		conn, err = net.DialTCP(netStr, laddr, raddr)
-		if err != nil {
-			return nil, err
-		}
-
-		_, err = conn.Write([]byte(strconv.Itoa(groupTCPConn.groupID)))
-		if err != nil {
-			conn.Close()
-			return nil, err
-		}
-		count, err = conn.Read(data)
-		if err != nil {
-			conn.Close()
-			return nil, err
-		}
-		gid, cid, err = splitData(string(data[:count]))
-		if err != nil {
-			conn.Close()
-			return nil, err
-		}
-
-		if groupTCPConn.groupID == gid {
-			groupTCPConn.addConn(cid, conn)
-		} else {
-			conn.Close()
-			return nil, err
-		}
+	for i := 1; i < initTCPCount; i++ {
+		gtc.dial()
 	}
 
-	return groupTCPConn.getTCPConn(), nil
+	return gtc.getTCPConn(), nil
 }
 
-func newTCPConn(groupTCPConn *GroupTCPConn, syncID int) *TCPConn {
+func newTCPConn(gtc *groupTCPConn, syncID int) *TCPConn {
 	if syncID == 0 {
 		syncID = getUniqueID()
 	}
 	return &TCPConn{
-		groupConn:    groupTCPConn,
-		writeChannel: groupTCPConn.writeChannel,
+		groupConn:    gtc,
+		writeChannel: gtc.writeChannel,
 		readChannel:  make(chan *packageData, 1024),
 		syncID:       syncID,
 	}
 }
 
-func (self *TCPConn) Close() {
-	self.groupConn.deleteTCPConn(self.syncID)
+func (tc *TCPConn) Close() {
+	tc.groupConn.deleteTCPConn(tc.syncID)
 }
 
-func (self *TCPConn) Read() ([]byte, error) {
-	pd := <-self.readChannel
+func (tc *TCPConn) Read() ([]byte, error) {
+	pd := <-tc.readChannel
 	if pd == nil {
 		return nil, errors.New("read channel close")
 	}
 	return []byte(pd.Data), nil
 }
 
-func (self *TCPConn) Write(data []byte) {
-	pd := NewPackageData(self.groupConn.groupID, self.syncID, data)
-	self.writeChannel <- pd
-	//TODO control stream
+func (tc *TCPConn) Write(data []byte) {
+	pd := newPackageData(tc.groupConn.groupID, tc.syncID, data)
+	tc.writeChannel <- pd
 }

@@ -3,7 +3,6 @@ package multinet
 import (
 	"strconv"
 	"strings"
-	"sync"
 )
 
 type packageData struct {
@@ -12,7 +11,7 @@ type packageData struct {
 	Data    string
 }
 
-func NewPackageData(groupID, syncID int, b []byte) (d *packageData) {
+func newPackageData(groupID, syncID int, b []byte) (d *packageData) {
 	d = getPackageData()
 	d.GroupID = groupID
 	d.SyncID = syncID
@@ -20,35 +19,20 @@ func NewPackageData(groupID, syncID int, b []byte) (d *packageData) {
 	return
 }
 
-func (self *packageData) Encode() []byte {
-	return []byte(strconv.Itoa(self.GroupID) + "&" + strconv.Itoa(self.SyncID) + "&" + self.Data)
+func (pd *packageData) Encode() []byte {
+	return []byte(strconv.Itoa(pd.GroupID) + "&" + strconv.Itoa(pd.SyncID) + "&" + pd.Data)
 }
 
-func (self *packageData) Decode(data []byte) (err error) {
+func (pd *packageData) Decode(data []byte) (err error) {
 	array := strings.SplitN(string(data), "&", 3)
-	self.GroupID, err = strconv.Atoi(array[0])
+	pd.GroupID, err = strconv.Atoi(array[0])
 	if err != nil {
 		return err
 	}
-	self.SyncID, err = strconv.Atoi(array[1])
+	pd.SyncID, err = strconv.Atoi(array[1])
 	if err != nil {
 		return err
 	}
-	self.Data = array[2]
-	return
-}
-
-type uniqueID struct {
-	sync.Mutex
-	id int
-}
-
-var globalUniqueID = new(uniqueID)
-
-func getUniqueID() (id int) {
-	globalUniqueID.Lock()
-	globalUniqueID.id++
-	id = globalUniqueID.id
-	globalUniqueID.Unlock()
+	pd.Data = array[2]
 	return
 }
