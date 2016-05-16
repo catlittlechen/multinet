@@ -16,7 +16,7 @@ type TCPListener struct {
 	tcpChannel chan *TCPConn
 	errChannel chan error
 
-	groupTCPConn map[int]groupTCPConn
+	groupTCPConn map[int]*groupTCPConn
 }
 
 func ListenTCP(netStr string, laddr *net.TCPAddr) (*TCPListener, error) {
@@ -29,7 +29,7 @@ func ListenTCP(netStr string, laddr *net.TCPAddr) (*TCPListener, error) {
 	listener.tcpChannel = make(chan *TCPConn, 1024)
 	listener.errChannel = make(chan error, 1024)
 	listener.listener = tcpListener
-	listener.groupTCPConn = make(map[int]groupTCPConn, 100)
+	listener.groupTCPConn = make(map[int]*groupTCPConn, 100)
 
 	return listener, nil
 }
@@ -88,7 +88,7 @@ func (tl *TCPListener) acceptTCP() {
 			groupTCPConn := newGroupTCPConn(groupID, "", nil, nil, tl)
 			groupTCPConn.addConn(clientID, conn)
 
-			tl.groupTCPConn[groupID] = *groupTCPConn
+			tl.groupTCPConn[groupID] = groupTCPConn
 			continue
 		}
 

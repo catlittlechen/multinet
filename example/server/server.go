@@ -30,8 +30,9 @@ func main() {
 }
 
 func dealTCPConn(tcpConn *multinet.TCPConn) {
-	data, _ := tcpConn.Read()
-	data = []byte("Hi Multinet Client!")
-	tcpConn.Write(data)
-	tcpConn.Close()
+	for {
+		data, _ := tcpConn.Read()
+		data = []byte("Hi Multinet Client!")
+		tcpConn.Write(data)
+	}
 }

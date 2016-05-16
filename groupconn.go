@@ -95,11 +95,7 @@ func (gtc *groupTCPConn) read(clientID int, conn *net.TCPConn) {
 		if pd.GroupID != gtc.groupID {
 			continue
 		}
-		if tcpConn, ok := gtc.virtualTCPConn[pd.SyncID]; ok {
-			tcpConn.readChannel <- pd
-		} else if gtc.listener != nil {
-			tcpConn = newTCPConn(gtc, pd.SyncID)
-			gtc.listener.tcpChannel <- tcpConn
+		if tcpConn := gtc.getTCPConnBySyncID(pd.SyncID); tcpConn != nil {
 			tcpConn.readChannel <- pd
 		} else {
 			putPackageData(pd)
@@ -109,6 +105,22 @@ func (gtc *groupTCPConn) read(clientID int, conn *net.TCPConn) {
 			goto DealWithTmpData
 		}
 	}
+}
+
+func (gtc *groupTCPConn) getTCPConnBySyncID(syncID int) (tcpConn *TCPConn) {
+	gtc.Lock()
+	defer gtc.Unlock()
+
+	ok := false
+	if tcpConn, ok = gtc.virtualTCPConn[syncID]; !ok {
+		if gtc.listener != nil {
+			tcpConn = newTCPConn(gtc, syncID)
+			gtc.listener.tcpChannel <- tcpConn
+			gtc.virtualTCPConn[tcpConn.syncID] = tcpConn
+		}
+	}
+
+	return
 }
 
 func (gtc *groupTCPConn) write(clientID int, conn *net.TCPConn) {
