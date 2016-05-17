@@ -78,7 +78,7 @@ func (tl *TCPListener) acceptTCP() {
 		//new group
 		if strings.Compare(dataStr, getGroupID) == 0 {
 			groupID = getUniqueID()
-			_, err = conn.Write([]byte(strconv.Itoa(groupID) + "&" + strconv.Itoa(clientID)))
+			_, err = conn.Write([]byte(combineData(groupID, clientID)))
 			if err != nil {
 				conn.Close()
 				tl.errChannel <- err
@@ -86,7 +86,7 @@ func (tl *TCPListener) acceptTCP() {
 			}
 
 			groupTCPConn := newGroupTCPConn(groupID, "", nil, nil, tl)
-			groupTCPConn.addConn(clientID, conn)
+			groupTCPConn.addConn(clientID, conn, "")
 
 			tl.groupTCPConn[groupID] = groupTCPConn
 			continue
@@ -94,14 +94,13 @@ func (tl *TCPListener) acceptTCP() {
 
 		//new group member
 		if groupID, err = strconv.Atoi(dataStr); err == nil {
-			_, err = conn.Write([]byte(strconv.Itoa(groupID) + "&" + strconv.Itoa(clientID)))
+			_, err = conn.Write([]byte(combineData(groupID, clientID)))
 			if err != nil {
 				conn.Close()
 				tl.errChannel <- err
 				return
 			}
-			groupTCPConn := tl.groupTCPConn[groupID]
-			groupTCPConn.addConn(clientID, conn)
+			tl.groupTCPConn[groupID].addConn(clientID, conn, "")
 		} else {
 			conn.Close()
 		}

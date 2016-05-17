@@ -41,19 +41,23 @@ func DialTCP(netStr string, laddr, raddr *net.TCPAddr) (*TCPConn, error) {
 		return nil, err
 	}
 
-	gid, cid, err := splitData(string(data[:count]))
+	gid, cid, tmpData, err := splitData(string(data[:count]))
 	if err != nil {
 		conn.Close()
 		return nil, err
 	}
 
 	gtc = newGroupTCPConn(gid, netStr, laddr, raddr, nil)
-	gtc.addConn(cid, conn)
+	gtc.addConn(cid, conn, tmpData)
 	setGroupConn(netStr, laddr, raddr, gtc)
 
-	for i := 1; i < initTCPCount; i++ {
-		gtc.dial()
-	}
+	go func() {
+		for i := 1; i < initTCPCount; i++ {
+			if err = gtc.dial(); err != nil {
+				fmt.Println(err)
+			}
+		}
+	}()
 
 	return gtc.getTCPConn(), nil
 }
@@ -85,4 +89,12 @@ func (tc *TCPConn) Read() ([]byte, error) {
 func (tc *TCPConn) Write(data []byte) {
 	pd := newPackageData(tc.groupConn.groupID, tc.syncID, data)
 	tc.writeChannel <- pd
+	go func() {
+		if len(tc.writeChannel) > cap(tc.writeChannel)/20 && tc.groupConn.listener == nil {
+			if err := tc.groupConn.dial(); err != nil {
+				fmt.Println(err)
+				return
+			}
+		}
+	}()
 }

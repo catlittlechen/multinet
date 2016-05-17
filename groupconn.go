@@ -42,19 +42,18 @@ func newGroupTCPConn(groupID int, netStr string, laddr, raddr *net.TCPAddr, list
 	return gtconn
 }
 
-func (gtc *groupTCPConn) addConn(clientID int, conn *net.TCPConn) {
+func (gtc *groupTCPConn) addConn(clientID int, conn *net.TCPConn, tmpData string) {
 	gtc.Lock()
 	gtc.cap++
 	gtc.tcpConn[clientID] = conn
-	go gtc.read(clientID, conn)
+	go gtc.read(clientID, conn, []byte(tmpData))
 	go gtc.write(clientID, conn)
 	gtc.Unlock()
 	return
 }
 
-func (gtc *groupTCPConn) read(clientID int, conn *net.TCPConn) {
+func (gtc *groupTCPConn) read(clientID int, conn *net.TCPConn, tmpData []byte) {
 	data := make([]byte, 1024)
-	var tmpData []byte
 	nowDataLen := 0
 	var n int
 	var err error
@@ -138,7 +137,6 @@ func (gtc *groupTCPConn) write(clientID int, conn *net.TCPConn) {
 			fmt.Println(err)
 			return
 		}
-		//TODO control stream
 		putPackageData(pd)
 	}
 }
@@ -169,7 +167,7 @@ func (gtc *groupTCPConn) deleteTCPConn(syncID int) {
 }
 
 func (gtc *groupTCPConn) dial() error {
-	if gtc.cap == maxTCPCount {
+	if gtc.cap >= maxTCPCount {
 		return nil
 	}
 
@@ -190,14 +188,14 @@ func (gtc *groupTCPConn) dial() error {
 		conn.Close()
 		return err
 	}
-	gid, cid, err := splitData(string(data[:count]))
+	gid, cid, tmpData, err := splitData(string(data[:count]))
 	if err != nil {
 		conn.Close()
 		return err
 	}
 
 	if gtc.groupID == gid {
-		gtc.addConn(cid, conn)
+		gtc.addConn(cid, conn, tmpData)
 	} else {
 		conn.Close()
 		return errors.New("verify group id fail")
