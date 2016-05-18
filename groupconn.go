@@ -2,11 +2,111 @@ package multinet
 
 import (
 	"errors"
-	"fmt"
 	"net"
 	"strconv"
 	"sync"
 )
+
+type realTCPConn struct {
+	gtc                 *groupTCPConn
+	clientID            int
+	conn                *net.TCPConn
+	canRead             bool
+	canWrite            bool
+	writeControlChannel chan bool
+}
+
+func newRealTCPConn(gtc *groupTCPConn, clientID int, conn *net.TCPConn) *realTCPConn {
+	return &realTCPConn{
+		gtc:                 gtc,
+		clientID:            clientID,
+		conn:                conn,
+		canRead:             true,
+		canWrite:            true,
+		writeControlChannel: make(chan bool),
+	}
+}
+
+func (rtc *realTCPConn) read(tmpData []byte) {
+	data := make([]byte, 1024)
+	nowDataLen := 0
+	var n int
+	var err error
+	for {
+		n, err = rtc.conn.Read(data)
+		if err != nil {
+			rtc.canRead = false
+			rtc.gtc.delRealConn(rtc.clientID)
+			return
+		}
+		tmpData = append(tmpData, data[:n]...)
+
+	DealWithTmpData:
+		if nowDataLen == 0 {
+			if len(tmpData) < 4 {
+				continue
+			} else {
+				nowDataLen, err = strconv.Atoi(string(tmpData[:4]))
+				if err != nil {
+					rtc.canRead = false
+					rtc.gtc.delRealConn(rtc.clientID)
+					return
+				}
+			}
+		}
+		if nowDataLen > len(tmpData) {
+			continue
+		}
+
+		pd := getPackageData()
+		err = pd.Decode(tmpData[4:nowDataLen])
+		if err != nil {
+			rtc.canRead = false
+			rtc.gtc.delRealConn(rtc.clientID)
+			return
+		}
+
+		tmpData = tmpData[nowDataLen:]
+		nowDataLen = 0
+
+		if pd.GroupID != rtc.gtc.groupID {
+			continue
+		}
+		if tcpConn := rtc.gtc.getTCPConnBySyncID(pd.SyncID); tcpConn != nil {
+			tcpConn.readChannel <- pd
+		} else {
+			putPackageData(pd)
+		}
+
+		if len(tmpData) != 0 {
+			goto DealWithTmpData
+		}
+	}
+}
+
+func (rtc *realTCPConn) write() {
+	var err error
+	for {
+		select {
+		case <-rtc.writeControlChannel:
+			return
+		case pd := <-rtc.gtc.writeChannel:
+			data := pd.Encode()
+			length := strconv.Itoa(len(data) + 4)
+			for len(length) < 4 {
+				length = "0" + length
+			}
+			data = append([]byte(length), data...)
+			_, err = rtc.conn.Write(data)
+			if err != nil {
+				rtc.gtc.writeChannel <- pd
+				rtc.canWrite = false
+				return
+			}
+			putPackageData(pd)
+		}
+	}
+}
 
 type groupTCPConn struct {
 	sync.Mutex
@@ -19,7 +119,7 @@ type groupTCPConn struct {
 
 	errorChannel   chan error
 	writeChannel   chan *packageData
-	tcpConn        map[int]*net.TCPConn
+	tcpConn        map[int]*realTCPConn
 	virtualTCPConn map[int]*TCPConn
 
 	listener *TCPListener
@@ -35,77 +135,36 @@ func newGroupTCPConn(groupID int, netStr string, laddr, raddr *net.TCPAddr, list
 
 	gtconn.errorChannel = make(chan error, 1024)
 	gtconn.writeChannel = make(chan *packageData, 1024)
-	gtconn.tcpConn = make(map[int]*net.TCPConn, 100)
+	gtconn.tcpConn = make(map[int]*realTCPConn, 100)
 	gtconn.virtualTCPConn = make(map[int]*TCPConn, 100)
 
 	gtconn.listener = listener
 	return gtconn
 }
 
-func (gtc *groupTCPConn) addConn(clientID int, conn *net.TCPConn, tmpData string) {
+func (gtc *groupTCPConn) addRealConn(clientID int, conn *net.TCPConn, tmpData string) {
 	gtc.Lock()
 	gtc.cap++
-	gtc.tcpConn[clientID] = conn
-	go gtc.read(clientID, conn, []byte(tmpData))
-	go gtc.write(clientID, conn)
+	rtc := newRealTCPConn(gtc, clientID, conn)
+	gtc.tcpConn[clientID] = rtc
+	go rtc.read([]byte(tmpData))
+	go rtc.write()
 	gtc.Unlock()
 	return
 }
 
-func (gtc *groupTCPConn) read(clientID int, conn *net.TCPConn, tmpData []byte) {
-	data := make([]byte, 1024)
-	nowDataLen := 0
-	var n int
-	var err error
-	for {
-		n, err = conn.Read(data)
-		if err != nil {
-			fmt.Println(err)
-			return
+func (gtc *groupTCPConn) delRealConn(clientID int) {
+	gtc.Lock()
+	rtc := gtc.tcpConn[clientID]
+	if !rtc.canRead {
+		if rtc.canWrite {
+			rtc.writeControlChannel <- true
 		}
-		tmpData = append(tmpData, data[:n]...)
-
-	DealWithTmpData:
-		if nowDataLen == 0 {
-			if len(tmpData) < 4 {
-				continue
-			} else {
-				nowDataLen, err = strconv.Atoi(string(tmpData[:4]))
-				if err != nil {
-					fmt.Println(err)
-					return
-				}
-			}
-		}
-		if nowDataLen > len(tmpData) {
-			continue
-		}
-
-		pd := getPackageData()
-		err = pd.Decode(tmpData[4:nowDataLen])
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-
-		tmpData = tmpData[nowDataLen:]
-		nowDataLen = 0
-
-		if pd.GroupID != gtc.groupID {
-			continue
-		}
-		if tcpConn := gtc.getTCPConnBySyncID(pd.SyncID); tcpConn != nil {
-			tcpConn.readChannel <- pd
-		} else {
-			putPackageData(pd)
-		}
-
-		if len(tmpData) != 0 {
-			goto DealWithTmpData
-		}
+		gtc.cap--
+		delete(gtc.tcpConn, clientID)
 	}
+	gtc.Unlock()
 }
-
 func (gtc *groupTCPConn) getTCPConnBySyncID(syncID int) (tcpConn *TCPConn) {
 	gtc.Lock()
 	defer gtc.Unlock()
@@ -122,29 +181,9 @@ func (gtc *groupTCPConn) getTCPConnBySyncID(syncID int) (tcpConn *TCPConn) {
 	return
 }
 
-func (gtc *groupTCPConn) write(clientID int, conn *net.TCPConn) {
-	var err error
-	for {
-		pd := <-gtc.writeChannel
-		data := pd.Encode()
-		length := strconv.Itoa(len(data) + 4)
-		for len(length) < 4 {
-			length = "0" + length
-		}
-		data = append([]byte(length), data...)
-		_, err = conn.Write(data)
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-		putPackageData(pd)
-	}
-}
-
 func (gtc *groupTCPConn) Close() error {
-	for _, tcpconn := range gtc.tcpConn {
-		if err := tcpconn.Close(); err != nil {
-			fmt.Println(err)
+	for _, realtcpconn := range gtc.tcpConn {
+		if err := realtcpconn.conn.Close(); err != nil {
 			return err
 		}
 	}
@@ -195,7 +234,7 @@ func (gtc *groupTCPConn) dial() error {
 	}
 
 	if gtc.groupID == gid {
-		gtc.addConn(cid, conn, tmpData)
+		gtc.addRealConn(cid, conn, tmpData)
 	} else {
 		conn.Close()
 		return errors.New("verify group id fail")

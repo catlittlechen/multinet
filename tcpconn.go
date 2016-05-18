@@ -20,7 +20,6 @@ func DialTCP(netStr string, laddr, raddr *net.TCPAddr) (*TCPConn, error) {
 	if gtc != nil {
 		return gtc.getTCPConn(), nil
 	}
-	fmt.Printf("Not Hit Cache")
 
 	conn, err := net.DialTCP(netStr, laddr, raddr)
 	if err != nil {
@@ -48,7 +47,7 @@ func DialTCP(netStr string, laddr, raddr *net.TCPAddr) (*TCPConn, error) {
 	}
 
 	gtc = newGroupTCPConn(gid, netStr, laddr, raddr, nil)
-	gtc.addConn(cid, conn, tmpData)
+	gtc.addRealConn(cid, conn, tmpData)
 	setGroupConn(netStr, laddr, raddr, gtc)
 
 	go func() {
@@ -87,7 +86,7 @@ func (tc *TCPConn) Read() ([]byte, error) {
 }
 
 func (tc *TCPConn) Write(data []byte) {
-	pd := newPackageData(tc.groupConn.groupID, tc.syncID, data)
+	pd := newPackageData(tc.groupConn.groupID, tc.syncID, 0, data)
 	tc.writeChannel <- pd
 	go func() {
 		if len(tc.writeChannel) > cap(tc.writeChannel)/20 && tc.groupConn.listener == nil {

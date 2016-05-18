@@ -86,7 +86,7 @@ func (tl *TCPListener) acceptTCP() {
 			}
 
 			groupTCPConn := newGroupTCPConn(groupID, "", nil, nil, tl)
-			groupTCPConn.addConn(clientID, conn, "")
+			groupTCPConn.addRealConn(clientID, conn, "")
 
 			tl.groupTCPConn[groupID] = groupTCPConn
 			continue
@@ -100,7 +100,7 @@ func (tl *TCPListener) acceptTCP() {
 				tl.errChannel <- err
 				return
 			}
-			tl.groupTCPConn[groupID].addConn(clientID, conn, "")
+			tl.groupTCPConn[groupID].addRealConn(clientID, conn, "")
 		} else {
 			conn.Close()
 		}

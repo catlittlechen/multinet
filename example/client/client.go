@@ -37,11 +37,11 @@ func main() {
 func doTask(tcpAddr *net.TCPAddr) {
 	defer wg.Done()
 	tcpConn, err := multinet.DialTCP("tcp", nil, tcpAddr)
-	defer tcpConn.Close()
 	if err != nil {
 		fmt.Printf("Fatal Error %s\n", err)
 		return
 	}
+	defer tcpConn.Close()
 	data := []byte("Hi Multinet Client!")
 	for i := 0; i < 1000; i++ {
 		tcpConn.Write(data)
