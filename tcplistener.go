@@ -7,6 +7,7 @@ import (
 	"sync"
 )
 
+// TCPListener the tcp listener of multinet
 type TCPListener struct {
 	sync.Mutex
 
@@ -19,6 +20,7 @@ type TCPListener struct {
 	groupTCPConn map[int]*groupTCPConn
 }
 
+// ListenTCP create the TCPListener of multinet
 func ListenTCP(netStr string, laddr *net.TCPAddr) (*TCPListener, error) {
 	tcpListener, err := net.ListenTCP(netStr, laddr)
 	if err != nil {
@@ -34,6 +36,7 @@ func ListenTCP(netStr string, laddr *net.TCPAddr) (*TCPListener, error) {
 	return listener, nil
 }
 
+// AcceptTCP get the virtual tcpconn of multinet
 func (tl *TCPListener) AcceptTCP() (tcpConn *TCPConn, err error) {
 
 	go tl.acceptTCP()
@@ -44,6 +47,8 @@ func (tl *TCPListener) AcceptTCP() (tcpConn *TCPConn, err error) {
 	return
 }
 
+// acceptTCP accept new tcp, return when errors,
+// but create new virtual tcp connection when new syncID data read
 func (tl *TCPListener) acceptTCP() {
 	tl.Lock()
 	if tl.ifListen {
@@ -108,6 +113,7 @@ func (tl *TCPListener) acceptTCP() {
 	}
 }
 
+// Close the TCPListener
 func (tl *TCPListener) Close() error {
 	return tl.listener.Close()
 }

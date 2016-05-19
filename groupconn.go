@@ -7,6 +7,7 @@ import (
 	"sync"
 )
 
+// realTCPConn the real tcp connection class
 type realTCPConn struct {
 	gtc                 *groupTCPConn
 	clientID            int
@@ -16,6 +17,7 @@ type realTCPConn struct {
 	writeControlChannel chan bool
 }
 
+// newRealTCPConn create real tcp connection
 func newRealTCPConn(gtc *groupTCPConn, clientID int, conn *net.TCPConn) *realTCPConn {
 	return &realTCPConn{
 		gtc:                 gtc,
@@ -27,6 +29,7 @@ func newRealTCPConn(gtc *groupTCPConn, clientID int, conn *net.TCPConn) *realTCP
 	}
 }
 
+// read the data
 func (rtc *realTCPConn) read(tmpData []byte) {
 	data := make([]byte, 1024)
 	nowDataLen := 0
@@ -84,6 +87,7 @@ func (rtc *realTCPConn) read(tmpData []byte) {
 	}
 }
 
+// write the data
 func (rtc *realTCPConn) write() {
 	var err error
 	for {
@@ -108,6 +112,7 @@ func (rtc *realTCPConn) write() {
 	}
 }
 
+// groupTCPConn is the core struct to control the tcp connections
 type groupTCPConn struct {
 	sync.Mutex
 	groupID int
@@ -125,6 +130,7 @@ type groupTCPConn struct {
 	listener *TCPListener
 }
 
+// newGroupTCPConn create the groupTCPConn
 func newGroupTCPConn(groupID int, netStr string, laddr, raddr *net.TCPAddr, listener *TCPListener) *groupTCPConn {
 	gtconn := new(groupTCPConn)
 	gtconn.groupID = groupID
@@ -142,6 +148,7 @@ func newGroupTCPConn(groupID int, netStr string, laddr, raddr *net.TCPAddr, list
 	return gtconn
 }
 
+// addRealConn add real tcp connection to add group after dialing
 func (gtc *groupTCPConn) addRealConn(clientID int, conn *net.TCPConn, tmpData string) {
 	gtc.Lock()
 	gtc.cap++
@@ -153,6 +160,7 @@ func (gtc *groupTCPConn) addRealConn(clientID int, conn *net.TCPConn, tmpData st
 	return
 }
 
+// delRealConn delete real tcp connections when errors
 func (gtc *groupTCPConn) delRealConn(clientID int) {
 	gtc.Lock()
 	rtc := gtc.tcpConn[clientID]
@@ -165,6 +173,8 @@ func (gtc *groupTCPConn) delRealConn(clientID int) {
 	}
 	gtc.Unlock()
 }
+
+// getTCPConnBySyncID create new virtual tcp connection when groupTCPCon get new syncID
 func (gtc *groupTCPConn) getTCPConnBySyncID(syncID int) (tcpConn *TCPConn) {
 	gtc.Lock()
 	defer gtc.Unlock()
@@ -181,15 +191,7 @@ func (gtc *groupTCPConn) getTCPConnBySyncID(syncID int) (tcpConn *TCPConn) {
 	return
 }
 
-func (gtc *groupTCPConn) Close() error {
-	for _, realtcpconn := range gtc.tcpConn {
-		if err := realtcpconn.conn.Close(); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
+// getTCPConn get virtual tcp connection
 func (gtc *groupTCPConn) getTCPConn() (tcpConn *TCPConn) {
 	gtc.Lock()
 	tcpConn = newTCPConn(gtc, 0)
@@ -198,6 +200,7 @@ func (gtc *groupTCPConn) getTCPConn() (tcpConn *TCPConn) {
 	return
 }
 
+// deleteTCPConn delete virtual tcp connection
 func (gtc *groupTCPConn) deleteTCPConn(syncID int) {
 	gtc.Lock()
 	delete(gtc.virtualTCPConn, syncID)
@@ -205,6 +208,7 @@ func (gtc *groupTCPConn) deleteTCPConn(syncID int) {
 	return
 }
 
+// dial and create new real tcp connection
 func (gtc *groupTCPConn) dial() error {
 	if gtc.cap >= maxTCPCount {
 		return nil
@@ -243,6 +247,17 @@ func (gtc *groupTCPConn) dial() error {
 	return nil
 }
 
+// Close the groupTCPConn
+func (gtc *groupTCPConn) Close() error {
+	for _, realtcpconn := range gtc.tcpConn {
+		if err := realtcpconn.conn.Close(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// globalMapGroupTCPConn the map to store the groupTCPConn
 var globalMapGroupTCPConn = make(map[string]*groupTCPConn, 100)
 
 func getGroupConn(netStr string, laddr, raddr *net.TCPAddr) *groupTCPConn {

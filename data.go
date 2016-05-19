@@ -6,6 +6,7 @@ import (
 	"strings"
 )
 
+// packageData is the core data of multinet
 type packageData struct {
 	GroupID int
 	SyncID  int
@@ -13,6 +14,7 @@ type packageData struct {
 	Data    string
 }
 
+// newPackageData create the packageData
 func newPackageData(groupID, syncID, code int, b []byte) (d *packageData) {
 	d = getPackageData()
 	d.GroupID = groupID
@@ -22,10 +24,13 @@ func newPackageData(groupID, syncID, code int, b []byte) (d *packageData) {
 	return
 }
 
+//TODO
+// Encode the packageData
 func (pd *packageData) Encode() []byte {
 	return []byte(strconv.Itoa(pd.GroupID) + "&" + strconv.Itoa(pd.SyncID) + "&" + strconv.Itoa(pd.Code) + "&" + pd.Data)
 }
 
+// Decode the data into packageData
 func (pd *packageData) Decode(data []byte) (err error) {
 	array := strings.SplitN(string(data), "&", 4)
 	if len(array) != 4 {

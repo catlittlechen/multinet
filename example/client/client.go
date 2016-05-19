@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"github.com/catlittlechen/multinet"
 	"net"
-	"os"
-	"runtime/pprof"
 	"sync"
 	"time"
 )
@@ -19,11 +17,6 @@ func main() {
 		fmt.Printf("Fatal Error %s\n", err)
 		return
 	}
-	wg.Add(1)
-	doTask(tcpAddr)
-	proFile, err := os.Create("filename.prof")
-	pprof.StartCPUProfile(proFile)
-	defer pprof.StopCPUProfile()
 	startTime := time.Now().UnixNano()
 	for i := 0; i < 100; i++ {
 		wg.Add(1)

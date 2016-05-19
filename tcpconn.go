@@ -4,8 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sync"
 )
 
+var dialSignleMutex = new(sync.Mutex)
+
+// TCPConn the virtual tcp conn in multinet
 type TCPConn struct {
 	groupConn    *groupTCPConn
 	writeChannel chan *packageData
@@ -13,7 +17,10 @@ type TCPConn struct {
 	syncID       int
 }
 
+// DialTCP get TCPConn of multinet
 func DialTCP(netStr string, laddr, raddr *net.TCPAddr) (*TCPConn, error) {
+	dialSignleMutex.Lock()
+	defer dialSignleMutex.Unlock()
 
 	// only first dial will work
 	gtc := getGroupConn(netStr, laddr, raddr)
@@ -73,10 +80,15 @@ func newTCPConn(gtc *groupTCPConn, syncID int) *TCPConn {
 	}
 }
 
+// Close the TCPConn
 func (tc *TCPConn) Close() {
 	tc.groupConn.deleteTCPConn(tc.syncID)
 }
 
+//TODO if possible, check the group to return error
+// now block
+
+// Read data from TCPConn
 func (tc *TCPConn) Read() ([]byte, error) {
 	pd := <-tc.readChannel
 	if pd == nil {
@@ -85,6 +97,7 @@ func (tc *TCPConn) Read() ([]byte, error) {
 	return []byte(pd.Data), nil
 }
 
+// Write data into TCPConn
 func (tc *TCPConn) Write(data []byte) {
 	pd := newPackageData(tc.groupConn.groupID, tc.syncID, 0, data)
 	tc.writeChannel <- pd
