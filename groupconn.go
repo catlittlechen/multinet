@@ -259,14 +259,24 @@ func (gtc *groupTCPConn) Close() error {
 
 // globalMapGroupTCPConn the map to store the groupTCPConn
 var globalMapGroupTCPConn = make(map[string]*groupTCPConn, 100)
+var globalMapGroupTCPConnMutex = new(sync.RWMutex)
 
-func getGroupConn(netStr string, laddr, raddr *net.TCPAddr) *groupTCPConn {
+func getGroupConn(netStr string, laddr, raddr *net.TCPAddr) (gtc *groupTCPConn) {
+	globalMapGroupTCPConnMutex.RLock()
+	defer globalMapGroupTCPConnMutex.RUnlock()
+
 	key := netStr + "&" + laddr.String() + "&" + raddr.String()
-	return globalMapGroupTCPConn[key]
+	gtc = globalMapGroupTCPConn[key]
+
+	return
 }
 
 func setGroupConn(netStr string, laddr, raddr *net.TCPAddr, gtc *groupTCPConn) {
+	globalMapGroupTCPConnMutex.Lock()
+	defer globalMapGroupTCPConnMutex.Unlock()
+
 	key := netStr + "&" + laddr.String() + "&" + raddr.String()
 	globalMapGroupTCPConn[key] = gtc
+
 	return
 }
